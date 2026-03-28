@@ -1,0 +1,80 @@
+[
+  {
+    "id": 2,
+    "email": "test_ai_1773855874958@test.com",
+    "name": "Test User",
+    "role": "student"
+  },
+  {
+    "id": 3,
+    "email": "test_ai_1773856422021@test.com",
+    "name": "Test User",
+    "role": "student"
+  },
+  {
+    "id": 4,
+    "email": "test_ai_1773856436007@test.com",
+    "name": "Test User",
+    "role": "student"
+  },
+  {
+    "id": 5,
+    "email": "test_ai_1773856474058@test.com",
+    "name": "Test User",
+    "role": "student"
+  },
+  {
+    "id": 6,
+    "email": "test_ai_1773856594001@test.com",
+    "name": "Test User",
+    "role": "student"
+  },
+  {
+    "id": 7,
+    "email": "test_ai_1773856797651@test.com",
+    "name": "Test User",
+    "role": "student"
+  },
+  {
+    "id": 8,
+    "email": "test_diff_1773856999823@test.com",
+    "name": "Test User",
+    "role": "student"
+  },
+  {
+    "id": 9,
+    "email": "test_diff_1773857028597@test.com",
+    "name": "Test User",
+    "role": "student"
+  },
+  {
+    "id": 10,
+    "email": "test_final_1773857068057@test.com",
+    "name": "Test",
+    "role": "student"
+  },
+  {
+    "id": 11,
+    "email": "test_final_1773857115223@test.com",
+    "name": "Test",
+    "role": "student"
+  },
+  {
+    "id": 12,
+    "email": "admin@studymate.com",
+    "name": "System Admin",
+    "role": "admin"
+  },
+  {
+    "id": 1,
+    "email": "adithyanvs105@gmail.com",
+    "name": "Adithyan VS",
+    "role": "admin"
+  },
+  {
+    "id": 13,
+    "email": "adithyanvs108@gmail.com",
+    "name": "ADITHYAN VS",
+    "role": "student"
+  }
+]
