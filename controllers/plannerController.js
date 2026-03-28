@@ -42,19 +42,21 @@ const generatePlan = async (req, res) => {
         // 4. Distribute hours and create sessions for next 7 days
         const sessionsToCreate = [];
         
-        // Calculate start of "today" at 9 AM in user's timezone
-        const startOfTodayLocal = new Date(now.getTime() - (tzOffset * 60 * 1000));
-        startOfTodayLocal.setUTCHours(9, 0, 0, 0);
+        // Calculate start of "today" at 9 AM in user's timezone correctly
+        const startOfTodayLocal = new Date(now.getTime() + (tzOffset * 60 * 1000));
+        startOfTodayLocal.setUTCHours(9, 0, 0, 0); // Target 9 AM local (treated as UTC here)
+        // Convert that 9 AM local timestamp back to true UTC
+        const firstSessionStartUtc = new Date(startOfTodayLocal.getTime() - (tzOffset * 60 * 1000));
 
         for (let day = 0; day < 7; day++) {
-            let currentStartTimeLocal = new Date(startOfTodayLocal);
-            currentStartTimeLocal.setUTCDate(currentStartTimeLocal.getUTCDate() + day);
+            let currentStartTimeUtc = new Date(firstSessionStartUtc);
+            currentStartTimeUtc.setUTCDate(currentStartTimeUtc.getUTCDate() + day);
 
             subjectWeights.forEach(sw => {
                 const hoursForThisSubject = (sw.weight / totalWeight) * (availableHoursPerDay || 4);
                 if (hoursForThisSubject < 0.5) return; // Skip if less than 30 mins
 
-                const startTimeUtc = new Date(currentStartTimeLocal.getTime() + (tzOffset * 60 * 1000));
+                const startTimeUtc = new Date(currentStartTimeUtc);
                 const endTimeUtc = new Date(startTimeUtc.getTime() + Math.round(hoursForThisSubject * 60 * 60 * 1000));
 
                 // Only schedule if it's in the future
@@ -66,8 +68,8 @@ const generatePlan = async (req, res) => {
                     });
                 }
 
-                // Add 15 min break to local tracker
-                currentStartTimeLocal = new Date(currentStartTimeLocal.getTime() + Math.round(hoursForThisSubject * 60 * 60 * 1000) + (15 * 60 * 1000));
+                // Add 15 min break
+                currentStartTimeUtc = new Date(endTimeUtc.getTime() + (15 * 60 * 1000));
             });
         }
 
@@ -98,11 +100,10 @@ const getPlan = async (req, res) => {
         
         const now = new Date();
         
-        // Calculate Start of Today and End of Tomorrow in User's timezone
-        const startOfTodayUtc = new Date(now);
-        startOfTodayUtc.setMinutes(startOfTodayUtc.getMinutes() - tzOffset);
-        startOfTodayUtc.setUTCHours(0, 0, 0, 0);
-        startOfTodayUtc.setMinutes(startOfTodayUtc.getMinutes() + tzOffset);
+        // 1. Correctly find the start of THE USER'S TODAY in UTC
+        const nowLocal = new Date(now.getTime() + (tzOffset * 60 * 1000));
+        nowLocal.setUTCHours(0, 0, 0, 0); 
+        const startOfTodayUtc = new Date(nowLocal.getTime() - (tzOffset * 60 * 1000));
 
         const endRangeUtc = new Date(startOfTodayUtc);
         endRangeUtc.setUTCDate(endRangeUtc.getUTCDate() + 30); // Show up to 30 days

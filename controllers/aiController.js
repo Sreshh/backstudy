@@ -52,7 +52,7 @@ const generateAIStudyPlan = async (req, res) => {
     const upcomingDates = [];
     for (let i = 0; i < studyDays; i++) {
         const d = new Date(nowUser);
-        d.setDate(d.getDate() + i);
+        d.setUTCDate(d.getUTCDate() + i);
         upcomingDates.push(d.toISOString().split('T')[0]);
     }
 
