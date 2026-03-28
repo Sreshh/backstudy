@@ -28,6 +28,7 @@ const getOverallProgress = async (req, res) => {
         const syllabusPercentage = totalTopics === 0 ? 0 : Math.round((completedTopics / totalTopics) * 100);
 
         // 3. Correctly find the start of THE USER'S TODAY in UTC
+        const now = new Date();
         const nowLocal = new Date(now.getTime() + (tzOffset * 60 * 1000));
         nowLocal.setUTCHours(0, 0, 0, 0); 
         const startOfTodayUtc = new Date(nowLocal.getTime() - (tzOffset * 60 * 1000));
@@ -61,6 +62,9 @@ const getOverallProgress = async (req, res) => {
 
         const totalMinutesToday = pomodoroMinutes + studySessionMinutes;
         const totalHoursToday = parseFloat((totalMinutesToday / 60).toFixed(2));
+        
+        console.log(`[Progress] User ${userId}: Sessions mins: ${studySessionMinutes}, Pom mins: ${pomodoroMinutes}, Total: ${totalHoursToday}h`);
+        console.log(`[Progress] Found ${dailyStudySessions.length} done sessions and ${dailyPomodoroSessions.length} poms.`);
         
         const dailyGoal = user?.dailyStudyGoal || 4.0;
         const dailyProgressPercent = Math.min(100, Math.round((totalHoursToday / dailyGoal) * 100));
