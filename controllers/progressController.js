@@ -81,16 +81,16 @@ const getOverallProgress = async (req, res) => {
         const totalFocusMinutesThisWeek = weeklySessions.reduce((acc, s) => acc + s.durationMinutes, 0);
 
         res.json({ 
-            totalTopics, 
-            completedTopics, 
-            syllabusPercentage, 
-            totalHoursToday, 
-            dailyGoal,
-            dailyProgressPercent,
-            totalFocusMinutesThisWeek, 
-            streakDays: user.streak || 0,
+            totalTopics: totalTopics || 0, 
+            completedTopics: completedTopics || 0, 
+            syllabusPercentage: syllabusPercentage || 0, 
+            totalHoursToday: totalHoursToday || 0, 
+            dailyGoal: dailyGoal || 4.0,
+            dailyProgressPercent: dailyProgressPercent || 0,
+            totalFocusMinutesThisWeek: totalFocusMinutesThisWeek || 0, 
+            streakDays: user?.streak || 0,
             // Deprecated field for compatibility
-            percentage: syllabusPercentage 
+            percentage: syllabusPercentage || 0 
         });
     } catch (error) {
         console.error('getOverallProgress Error:', error);
