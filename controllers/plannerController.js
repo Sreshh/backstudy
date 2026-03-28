@@ -104,14 +104,14 @@ const getPlan = async (req, res) => {
         startOfTodayUtc.setUTCHours(0, 0, 0, 0);
         startOfTodayUtc.setMinutes(startOfTodayUtc.getMinutes() + tzOffset);
 
-        const endOfTomorrowUtc = new Date(startOfTodayUtc);
-        endOfTomorrowUtc.setUTCDate(endOfTomorrowUtc.getUTCDate() + 2);
-        endOfTomorrowUtc.setMilliseconds(-1);
+        const endRangeUtc = new Date(startOfTodayUtc);
+        endRangeUtc.setUTCDate(endRangeUtc.getUTCDate() + 30); // Show up to 30 days
+        endRangeUtc.setMilliseconds(-1);
 
         const sessions = await prisma.studySession.findMany({
             where: {
                 subject: { userId: req.userId },
-                startTime: { gte: startOfTodayUtc, lte: endOfTomorrowUtc },
+                startTime: { gte: startOfTodayUtc, lte: endRangeUtc },
             },
             include: { subject: { select: { name: true } } },
             orderBy: { startTime: 'asc' },

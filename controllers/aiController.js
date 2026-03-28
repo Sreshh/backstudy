@@ -78,7 +78,7 @@ ${upcomingDates.map((d, i) => `Day ${i+1}: ${d}`).join("\n")}
 
 Rules:
 1. Start daily sessions at ${startTimeFormatted} LOCAL time each day.
-2. Output startTime and endTime as ISO strings in UTC (Z), but calculate them to match the ${startTimeFormatted} LOCAL start time using the provided offset of ${tzOffset} minutes.
+2. Output startTime and endTime as 24-hour local time strings (e.g., "09:00", "11:30") relative to each day's date. Do NOT output UTC strings.
 3. Suggest one specific "focusTopic" (from the list above) for each session.
 4. Ensure no subject sessions overlap in time on the same day.
 5. Maximize productivity by putting harder subjects earlier.
@@ -87,8 +87,8 @@ Rules:
   "schedule": [
     {
       "date": "2026-03-29",
-      "startTime": "2026-03-29T04:30:00Z",
-      "endTime": "2026-03-29T06:30:00Z",
+      "startTime": "09:00",
+      "endTime": "11:00",
       "subjectId": 12,
       "focusTopic": "Calculus: Derivatives"
     }
@@ -136,10 +136,18 @@ Return ONLY the JSON object.`;
     for (const s of sessions) {
       const dbSubject = subjects.find((sub) => sub.id === parseInt(s.subjectId));
       if (dbSubject) {
+        // Convert local time string (HH:mm) to UTC Date
+        const [startH, startM] = s.startTime.split(':').map(Number);
+        const [endH, endM] = s.endTime.split(':').map(Number);
+        
+        const startDateLocal = new Date(`${s.date}T00:00:00Z`); // Using Z just to get a stable base
+        const startTimeUtc = new Date(startDateLocal.getTime() + (startH * 60 + startM - tzOffset) * 60 * 1000);
+        const endTimeUtc = new Date(startDateLocal.getTime() + (endH * 60 + endM - tzOffset) * 60 * 1000);
+
         createdSessions.push({
           subjectId: dbSubject.id,
-          startTime: new Date(s.startTime),
-          endTime: new Date(s.endTime),
+          startTime: startTimeUtc,
+          endTime: endTimeUtc,
           focusTopic: s.focusTopic,
         });
       }
