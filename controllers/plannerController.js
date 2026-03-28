@@ -2,8 +2,9 @@ const prisma = require('../db');
 
 const generatePlan = async (req, res) => {
     try {
-        const { availableHoursPerDay } = req.body; // e.g. 4
+        const { availableHoursPerDay, timezoneOffset } = req.body;
         const userId = req.userId;
+        const tzOffset = parseInt(timezoneOffset) || 0;
 
         // 1. Fetch Subjects and Exams
         const subjects = await prisma.subject.findMany({
@@ -23,61 +24,67 @@ const generatePlan = async (req, res) => {
                 const earliestExam = new Date(Math.min(...subject.exams.map(e => new Date(e.date))));
                 daysUntilExam = Math.max(1, Math.ceil((earliestExam - now) / (1000 * 60 * 60 * 24)));
             }
-
-            // Heuristic: Higher priority and difficulty, closer exam = Higher Weight
             const weight = (subject.priority * subject.difficulty) / Math.sqrt(daysUntilExam);
             return { id: subject.id, weight };
         });
 
         const totalWeight = subjectWeights.reduce((acc, s) => acc + s.weight, 0);
 
-        // 3. Clear existing sessions for future
-        await prisma.studySession.deleteMany({
+        // 3. Clear future sessions
+        const deletePromise = prisma.studySession.deleteMany({
             where: {
                 subject: { userId: userId },
                 startTime: { gte: now },
+                isDone: false // Don't delete completed ones
             },
         });
 
         // 4. Distribute hours and create sessions for next 7 days
-        const sessions = [];
+        const sessionsToCreate = [];
+        
+        // Calculate start of "today" at 9 AM in user's timezone
+        const startOfTodayLocal = new Date(now.getTime() - (tzOffset * 60 * 1000));
+        startOfTodayLocal.setUTCHours(9, 0, 0, 0);
+
         for (let day = 0; day < 7; day++) {
-            let currentStartTime = new Date(now);
-            currentStartTime.setDate(currentStartTime.getDate() + day);
-            currentStartTime.setHours(9, 0, 0, 0); // Start at 9 AM
+            let currentStartTimeLocal = new Date(startOfTodayLocal);
+            currentStartTimeLocal.setUTCDate(currentStartTimeLocal.getUTCDate() + day);
 
             subjectWeights.forEach(sw => {
                 const hoursForThisSubject = (sw.weight / totalWeight) * (availableHoursPerDay || 4);
                 if (hoursForThisSubject < 0.5) return; // Skip if less than 30 mins
 
-                const endTime = new Date(currentStartTime);
-                endTime.setMinutes(endTime.getMinutes() + Math.round(hoursForThisSubject * 60));
+                const startTimeUtc = new Date(currentStartTimeLocal.getTime() + (tzOffset * 60 * 1000));
+                const endTimeUtc = new Date(startTimeUtc.getTime() + Math.round(hoursForThisSubject * 60 * 60 * 1000));
 
-                sessions.push({
-                    subjectId: sw.id,
-                    startTime: new Date(currentStartTime),
-                    endTime: new Date(endTime),
-                });
+                // Only schedule if it's in the future
+                if (startTimeUtc > now) {
+                    sessionsToCreate.push({
+                        subjectId: sw.id,
+                        startTime: startTimeUtc,
+                        endTime: endTimeUtc,
+                    });
+                }
 
-                // Add 15 min break
-                currentStartTime = new Date(endTime);
-                currentStartTime.setMinutes(currentStartTime.getMinutes() + 15);
+                // Add 15 min break to local tracker
+                currentStartTimeLocal = new Date(currentStartTimeLocal.getTime() + Math.round(hoursForThisSubject * 60 * 60 * 1000) + (15 * 60 * 1000));
             });
         }
 
-        // Save to DB using individual creates (createMany fails with pgbouncer)
-        const created = [];
-        for (const session of sessions) {
-            try {
-                const s = await prisma.studySession.create({ data: session });
+        // 5. Execute as a transaction
+        const result = await prisma.$transaction(async (tx) => {
+            await deletePromise;
+            const created = [];
+            for (const data of sessionsToCreate) {
+                const s = await tx.studySession.create({ data });
                 created.push(s);
-            } catch (e) {
-                console.error('Failed to create session:', e.message);
             }
-        }
-        console.log(`Planner: Created ${created.length}/${sessions.length} sessions`);
+            return created;
+        });
 
-        res.json({ message: 'Study plan generated successfully', sessions: created });
+        console.log(`Planner: Regraphed ${result.length} future sessions for user ${userId}`);
+        res.json({ message: 'Study plan generated successfully', sessions: result });
+
     } catch (error) {
         console.error('generatePlan error:', error);
         res.status(500).json({ message: error.message });
@@ -86,23 +93,30 @@ const generatePlan = async (req, res) => {
 
 const getPlan = async (req, res) => {
     try {
-        // Broaden the window to 48 hours to account for timezone shifts
-        // (Start of Today to End of Tomorrow)
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
+        const { timezoneOffset } = req.query;
+        const tzOffset = parseInt(timezoneOffset) || 0;
         
-        const end = new Date(start);
-        end.setDate(end.getDate() + 2);
-        end.setMilliseconds(-1);
+        const now = new Date();
+        
+        // Calculate Start of Today and End of Tomorrow in User's timezone
+        const startOfTodayUtc = new Date(now);
+        startOfTodayUtc.setMinutes(startOfTodayUtc.getMinutes() - tzOffset);
+        startOfTodayUtc.setUTCHours(0, 0, 0, 0);
+        startOfTodayUtc.setMinutes(startOfTodayUtc.getMinutes() + tzOffset);
+
+        const endOfTomorrowUtc = new Date(startOfTodayUtc);
+        endOfTomorrowUtc.setUTCDate(endOfTomorrowUtc.getUTCDate() + 2);
+        endOfTomorrowUtc.setMilliseconds(-1);
 
         const sessions = await prisma.studySession.findMany({
             where: {
                 subject: { userId: req.userId },
-                startTime: { gte: start, lte: end },
+                startTime: { gte: startOfTodayUtc, lte: endOfTomorrowUtc },
             },
             include: { subject: { select: { name: true } } },
             orderBy: { startTime: 'asc' },
         });
+
         res.json(sessions);
     } catch (error) {
         res.status(500).json({ message: error.message });
