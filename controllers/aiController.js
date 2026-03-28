@@ -77,9 +77,9 @@ Scheduled Dates:
 ${upcomingDates.map((d, i) => `Day ${i+1}: ${d}`).join("\n")}
 
 Rules:
-1. Start daily sessions at ${startTimeFormatted} LOCAL time each day.
-2. Output startTime and endTime as 24-hour local time strings (e.g., "09:00", "11:30") relative to each day's date. Do NOT output UTC strings.
-3. Suggest one specific "focusTopic" (from the list above) for each session.
+1. You MUST start the very first session on ${upcomingDates[0]} at exactly ${startTimeFormatted} LOCAL time.
+2. Subsequent sessions for Day 1 must follow after the first session.
+3. Output startTime and endTime as 24-hour local time strings (e.g., "09:00", "11:30") relative to the "date" field.
 4. Ensure no subject sessions overlap in time on the same day.
 5. Maximize productivity by putting harder subjects earlier.
 6. Output MUST be a valid JSON object with this exact structure:
@@ -117,17 +117,16 @@ Return ONLY the JSON object.`;
 
     const sessions = aiResponse.schedule || aiResponse.sessions || [];
 
-    // 4. Clear old sessions for the range
+    // 4. Clear old sessions from the start of the user's TODAY (local 00:00)
     const todayUserStart = new Date(upcomingDates[0] + 'T00:00:00Z'); 
     const startRangeUtc = new Date(todayUserStart.getTime() - (tzOffset * 60 * 1000));
     
-    const rangeEnd = new Date(startRangeUtc);
-    rangeEnd.setDate(rangeEnd.getDate() + studyDays + 1);
-
+    // Safety: Also delete any sessions that might have been created for "today" already
     await prisma.studySession.deleteMany({
       where: {
         subject: { userId },
-        startTime: { gte: startRangeUtc, lt: rangeEnd },
+        startTime: { gte: startRangeUtc },
+        isDone: false // Don't delete completed user work
       },
     });
 
