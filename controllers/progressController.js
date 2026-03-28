@@ -27,12 +27,10 @@ const getOverallProgress = async (req, res) => {
         );
         const syllabusPercentage = totalTopics === 0 ? 0 : Math.round((completedTopics / totalTopics) * 100);
 
-        // 3. Calculate "Today" in User's Timezone
-        const now = new Date();
-        const startOfTodayUtc = new Date(now);
-        startOfTodayUtc.setMinutes(startOfTodayUtc.getMinutes() - tzOffset);
-        startOfTodayUtc.setUTCHours(0, 0, 0, 0);
-        startOfTodayUtc.setMinutes(startOfTodayUtc.getMinutes() + tzOffset);
+        // 3. Correctly find the start of THE USER'S TODAY in UTC
+        const nowLocal = new Date(now.getTime() + (tzOffset * 60 * 1000));
+        nowLocal.setUTCHours(0, 0, 0, 0); 
+        const startOfTodayUtc = new Date(nowLocal.getTime() - (tzOffset * 60 * 1000));
 
         const endOfTodayUtc = new Date(startOfTodayUtc);
         endOfTodayUtc.setUTCDate(endOfTodayUtc.getUTCDate() + 1);

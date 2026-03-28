@@ -141,6 +141,24 @@ const toggleSession = async (req, res) => {
             data: { isDone: !session.isDone },
         });
 
+        // Topic Sync: If session is newly marked as done, try to mark the corresponding Topic as completed
+        if (!session.isDone && updatedSession.isDone && session.focusTopic) {
+            try {
+                // Remove difficulty info like "(Difficulty: 3/5)" for a cleaner match if needed
+                const cleanTopicName = session.focusTopic.split('(')[0].trim();
+                
+                await prisma.topic.updateMany({
+                   where: {
+                       subjectId: session.subjectId,
+                       name: { contains: cleanTopicName, mode: 'insensitive' }
+                   },
+                   data: { isCompleted: true }
+                });
+            } catch (err) {
+                console.error("Topic Sync Error:", err);
+            }
+        }
+
         res.json(updatedSession);
     } catch (error) {
         res.status(500).json({ message: error.message });
