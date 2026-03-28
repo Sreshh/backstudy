@@ -1,8 +1,12 @@
 const Groq = require("groq-sdk");
 const prisma = require("../db");
 
+if (!process.env.GROQ_API_KEY) {
+  console.error("GROQ_API_KEY is missing in .env file.");
+}
+
 const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
+  apiKey: process.env.GROQ_API_KEY || "dummy_key",
 });
 
 const generateAIStudyPlan = async (req, res) => {
@@ -42,7 +46,7 @@ const generateAIStudyPlan = async (req, res) => {
 
     // 2. Calculate User's "Today"
     const nowServer = new Date();
-    const nowUser = new Date(nowServer.getTime() - (tzOffset * 60 * 1000));
+    const nowUser = new Date(nowServer.getTime() + (tzOffset * 60 * 1000));
     
     // Generate dates based on User's local time
     const upcomingDates = [];
@@ -100,12 +104,22 @@ Return ONLY the JSON object.`;
       response_format: { type: "json_object" },
     });
 
-    const aiResponse = JSON.parse(completion.choices[0].message.content);
-    const sessions = aiResponse.schedule || aiResponse.sessions;
+    let aiResponse;
+    try {
+      const rawContent = completion.choices[0].message.content;
+      // Handle cases where AI might wrap JSON in markdown code blocks
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      aiResponse = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
+    } catch (parseError) {
+      console.error("Failed to parse AI response:", completion.choices[0].message.content);
+      throw new Error("AI returned an invalid format. Please try again.");
+    }
+
+    const sessions = aiResponse.schedule || aiResponse.sessions || [];
 
     // 4. Clear old sessions for the range
-    const todayUserStart = new Date(upcomingDates[0]); // User local YYYY-MM-DD
-    const startRangeUtc = new Date(todayUserStart.getTime() + (tzOffset * 60 * 1000));
+    const todayUserStart = new Date(upcomingDates[0] + 'T00:00:00Z'); 
+    const startRangeUtc = new Date(todayUserStart.getTime() - (tzOffset * 60 * 1000));
     
     const rangeEnd = new Date(startRangeUtc);
     rangeEnd.setDate(rangeEnd.getDate() + studyDays + 1);
@@ -141,7 +155,7 @@ Return ONLY the JSON object.`;
     const finalSchedule = await prisma.studySession.findMany({
       where: {
         subject: { userId },
-        startTime: { gte: today },
+        startTime: { gte: startRangeUtc },
       },
       include: { subject: true },
       orderBy: { startTime: "asc" },
