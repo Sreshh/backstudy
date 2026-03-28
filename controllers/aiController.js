@@ -8,21 +8,20 @@ const groq = new Groq({
 const generateAIStudyPlan = async (req, res) => {
   try {
     const userId = req.userId;
-    const { dailyStudyHours: requestedHours, days: requestedDays, subjectIds, preferredStartHour } = req.body;
+    const { 
+      dailyStudyHours: requestedHours, 
+      days: requestedDays, 
+      subjectIds, 
+      preferredStartHour,
+      timezoneOffset 
+    } = req.body;
 
     const studyDays = parseInt(requestedDays) || 7;
+    const tzOffset = parseInt(timezoneOffset) || 0; // in minutes
 
     // 1. Fetch User and Data
     const user = await prisma.user.findUnique({ where: { id: userId } });
     const hoursPerDay = requestedHours || user.dailyStudyGoal || user.dailyStudyHours || 4.0;
-
-    // Update user's preference if provided
-    if (requestedHours && requestedHours !== user.dailyStudyGoal) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { dailyStudyGoal: parseFloat(requestedHours) },
-      });
-    }
 
     const whereClause = { userId };
     if (subjectIds && Array.isArray(subjectIds) && subjectIds.length > 0) {
@@ -41,27 +40,14 @@ const generateAIStudyPlan = async (req, res) => {
       return res.status(400).json({ message: "Add subjects first to generate a plan." });
     }
 
-    // 2. Prepare context for AI
-    const subjectData = subjects.map((s) => ({
-      name: s.name,
-      difficulty: s.difficulty,
-      priority: s.priority,
-      topics: s.topics.map((t) => t.name),
-      nextExam: s.exams.length > 0 ? s.exams[0].date : "None",
-    }));
-
-    // 2. Prepare context for AI with IDs and Dates
-    const subjectsDetails = subjects
-      .map((s) => {
-        const topicsList = s.topics.map((t) => `${t.name} (Difficulty: ${t.difficulty}/5)`).join(", ");
-        return `- ID: ${s.id}, Name: ${s.name}: ${topicsList} (Difficulty: ${s.difficulty}/5, Priority: ${s.priority}/5)`;
-      })
-      .join("\n");
-
-    // Generate accurate list of the next 7 dates
+    // 2. Calculate User's "Today"
+    const nowServer = new Date();
+    const nowUser = new Date(nowServer.getTime() - (tzOffset * 60 * 1000));
+    
+    // Generate dates based on User's local time
     const upcomingDates = [];
     for (let i = 0; i < studyDays; i++) {
-        const d = new Date();
+        const d = new Date(nowUser);
         d.setDate(d.getDate() + i);
         upcomingDates.push(d.toISOString().split('T')[0]);
     }
@@ -69,29 +55,36 @@ const generateAIStudyPlan = async (req, res) => {
     const startHour = preferredStartHour || 9;
     const startTimeFormatted = `${startHour}:00 ${startHour >= 12 ? 'PM' : 'AM'}`;
 
+    const subjectsDetails = subjects
+      .map((s) => {
+        const topicsList = s.topics.map((t) => `${t.name} (Difficulty: ${t.difficulty}/5)`).join(", ");
+        return `- ID: ${s.id}, Name: ${s.name}: ${topicsList} (Difficulty: ${s.difficulty}/5, Priority: ${s.priority}/5)`;
+      })
+      .join("\n");
+
     const prompt = `You are an AI Study Planner. Create a ${studyDays}-day optimized study schedule.
 Available study time: ${hoursPerDay} hours per day.
+User Timezone Offset: ${tzOffset} minutes (GMT${tzOffset <= 0 ? '+' : '-'}${Math.abs(tzOffset/60)})
 
 Subjects & Topics (Use these IDs):
 ${subjectsDetails}
 
-Dates to use for Each Day of the Schedule:
+Scheduled Dates:
 ${upcomingDates.map((d, i) => `Day ${i+1}: ${d}`).join("\n")}
 
-Start the daily sessions from ${startTimeFormatted} local time each day.
-
 Rules:
-1. Spread the sessions across the ${studyDays} days accurately using the provided Dates.
-2. Prioritize subjects with higher priority and topics with higher difficulty.
+1. Start daily sessions at ${startTimeFormatted} LOCAL time each day.
+2. Output startTime and endTime as ISO strings in UTC (Z), but calculate them to match the ${startTimeFormatted} LOCAL start time using the provided offset of ${tzOffset} minutes.
 3. Suggest one specific "focusTopic" (from the list above) for each session.
 4. Ensure no subject sessions overlap in time on the same day.
-5. Output MUST be a valid JSON object with this exact structure:
+5. Maximize productivity by putting harder subjects earlier.
+6. Output MUST be a valid JSON object with this exact structure:
 {
   "schedule": [
     {
       "date": "2026-03-29",
-      "startTime": "2026-03-29T09:00:00Z",
-      "endTime": "2026-03-29T11:00:00Z",
+      "startTime": "2026-03-29T04:30:00Z",
+      "endTime": "2026-03-29T06:30:00Z",
       "subjectId": 12,
       "focusTopic": "Calculus: Derivatives"
     }
@@ -110,24 +103,23 @@ Return ONLY the JSON object.`;
     const aiResponse = JSON.parse(completion.choices[0].message.content);
     const sessions = aiResponse.schedule || aiResponse.sessions;
 
-    // 4. Clear old future sessions for the requested range
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const rangeEnd = new Date(today);
+    // 4. Clear old sessions for the range
+    const todayUserStart = new Date(upcomingDates[0]); // User local YYYY-MM-DD
+    const startRangeUtc = new Date(todayUserStart.getTime() + (tzOffset * 60 * 1000));
+    
+    const rangeEnd = new Date(startRangeUtc);
     rangeEnd.setDate(rangeEnd.getDate() + studyDays + 1);
 
     await prisma.studySession.deleteMany({
       where: {
         subject: { userId },
-        startTime: { gte: today, lt: rangeEnd },
+        startTime: { gte: startRangeUtc, lt: rangeEnd },
       },
     });
 
-    // 5. Transform and save sessions using IDs
+    // 5. Transform and save sessions
     const createdSessions = [];
     for (const s of sessions) {
-      // Ensure the subjectId is valid for this user
       const dbSubject = subjects.find((sub) => sub.id === parseInt(s.subjectId));
       if (dbSubject) {
         createdSessions.push({
@@ -140,11 +132,9 @@ Return ONLY the JSON object.`;
     }
 
     if (createdSessions.length > 0) {
-      for (const ds of createdSessions) {
-        await prisma.studySession.create({
-          data: ds,
-        });
-      }
+      await prisma.studySession.createMany({
+        data: createdSessions
+      });
     }
 
     // 6. Fetch the newly created sessions to return consistent data
